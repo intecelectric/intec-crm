@@ -1,0 +1,282 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── USERS / AUTH ───────────────────────────────────────────
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole @default(STAFF)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activities Activity[]
+  jobs       Job[]      @relation("CreatedByUser")
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+// ─── CUSTOMERS ──────────────────────────────────────────────
+model Customer {
+  id          String       @id @default(uuid())
+  name        String
+  email       String?
+  phone       String?
+  company     String?
+  address     String?
+  city        String?
+  state       String?      @default("FL")
+  zip         String?
+  notes       String?
+  type        CustomerType @default(RESIDENTIAL)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  jobs     Job[]
+  invoices Invoice[]
+
+  @@map("customers")
+}
+
+enum CustomerType {
+  RESIDENTIAL
+  COMMERCIAL
+  PROPERTY_MANAGER
+}
+
+// ─── JOBS ───────────────────────────────────────────────────
+model Job {
+  id              String    @id @default(uuid())
+  jobNumber       String    @unique
+  title           String
+  description     String?
+  status          JobStatus @default(LEAD)
+  priority        Priority  @default(MEDIUM)
+  address         String?
+  city            String?
+  state           String?   @default("FL")
+  zip             String?
+  scheduledDate   DateTime?
+  completedDate   DateTime?
+  estimatedAmount Decimal?  @db.Decimal(10, 2)
+  actualAmount    Decimal?  @db.Decimal(10, 2)
+  notes           String?
+  isWorkOrder     Boolean   @default(false)
+  workOrderEmail  String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  createdById String?
+  createdBy   User?   @relation("CreatedByUser", fields: [createdById], references: [id])
+
+  invoices    Invoice[]
+  jobCrew     JobCrew[]
+  activities  Activity[]
+  lineItems   JobLineItem[]
+
+  @@map("jobs")
+}
+
+enum JobStatus {
+  LEAD
+  QUOTED
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// ─── JOB LINE ITEMS ─────────────────────────────────────────
+model JobLineItem {
+  id          String  @id @default(uuid())
+  description String
+  quantity    Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal @db.Decimal(10, 2)
+  amount      Decimal @db.Decimal(10, 2)
+
+  jobId String
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("job_line_items")
+}
+
+// ─── CREW MEMBERS ───────────────────────────────────────────
+model CrewMember {
+  id        String     @id @default(uuid())
+  name      String
+  phone     String?
+  email     String?
+  role      String?    @default("Electrician")
+  rate      Decimal?   @db.Decimal(10, 2)
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  jobCrew JobCrew[]
+
+  @@map("crew_members")
+}
+
+// ─── JOB ↔ CREW (many-to-many) ─────────────────────────────
+model JobCrew {
+  id        String   @id @default(uuid())
+  jobId     String
+  crewId    String
+  assignedAt DateTime @default(now())
+
+  job  Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  crew CrewMember @relation(fields: [crewId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, crewId])
+  @@map("job_crew")
+}
+
+// ─── INVOICES ───────────────────────────────────────────────
+model Invoice {
+  id             String        @id @default(uuid())
+  invoiceNumber  String        @unique
+  status         InvoiceStatus @default(DRAFT)
+  issueDate      DateTime      @default(now())
+  dueDate        DateTime
+  subtotal       Decimal       @db.Decimal(10, 2)
+  taxRate        Decimal       @default(0) @db.Decimal(5, 2)
+  taxAmount      Decimal       @default(0) @db.Decimal(10, 2)
+  total          Decimal       @db.Decimal(10, 2)
+  amountPaid     Decimal       @default(0) @db.Decimal(10, 2)
+  balanceDue     Decimal       @db.Decimal(10, 2)
+  notes          String?
+  pdfUrl         String?
+
+  // QuickBooks-ready fields
+  qbCustomerId   String?
+  qbInvoiceId    String?
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  jobId String?
+  job   Job?    @relation(fields: [jobId], references: [id])
+
+  lineItems  InvoiceLineItem[]
+  payments   Payment[]
+  activities Activity[]
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PAID
+  PARTIAL
+  OVERDUE
+  CANCELLED
+}
+
+// ─── INVOICE LINE ITEMS ─────────────────────────────────────
+model InvoiceLineItem {
+  id          String  @id @default(uuid())
+  description String
+  quantity    Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal @db.Decimal(10, 2)
+  amount      Decimal @db.Decimal(10, 2)
+
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_line_items")
+}
+
+// ─── PAYMENTS ───────────────────────────────────────────────
+model Payment {
+  id        String        @id @default(uuid())
+  amount    Decimal       @db.Decimal(10, 2)
+  method    PaymentMethod @default(CHECK)
+  reference String?
+  notes     String?
+  paidAt    DateTime      @default(now())
+  createdAt DateTime      @default(now())
+
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+enum PaymentMethod {
+  CASH
+  CHECK
+  CREDIT_CARD
+  BANK_TRANSFER
+  ZELLE
+  OTHER
+}
+
+// ─── ACTIVITY LOG ───────────────────────────────────────────
+model Activity {
+  id          String       @id @default(uuid())
+  type        ActivityType
+  description String
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+
+  jobId     String?
+  job       Job?     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("activities")
+}
+
+enum ActivityType {
+  STATUS_CHANGE
+  NOTE_ADDED
+  INVOICE_CREATED
+  INVOICE_SENT
+  PAYMENT_RECEIVED
+  JOB_CREATED
+  JOB_UPDATED
+  CREW_ASSIGNED
+  EMAIL_SENT
+  WORK_ORDER_RECEIVED
+}
+
+// ─── COMPANY SETTINGS ───────────────────────────────────────
+model Setting {
+  id    String @id @default(uuid())
+  key   String @unique
+  value String
+
+  @@map("settings")
+}

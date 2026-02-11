@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx prisma validate:*)",
+      "Bash(node -c:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(npx prisma generate:*)"
+    ]
+  }
+}
